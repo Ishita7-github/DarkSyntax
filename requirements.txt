@@ -1,0 +1,4 @@
+spacy==3.7.5
+scispacy==0.5.5
+numpy==1.26.4
+nmslib-metabrainz
