@@ -2,27 +2,10 @@
 pipeline/triage.py
 DarkSyntax — Core Triage Engine
 Person A owns this file.
+Modified by Person B: Groq instead of Anthropic
 
 Full pipeline:
   Patient text → NER → ScaleDown compression → LLM (CoT) → JSON output
-
-Output schema (shared with Person B + C):
-{
-    "diagnosis":          str,
-    "urgency":            "critical|high|moderate|low",
-    "confidence":         float (0.0–1.0),
-    "reasoning":          str,
-    "red_flags":          list[str],
-    "recommended_action": str,
-    "negated_symptoms":   list[str],
-    "medications":        list[str],
-    "vitals":             dict,
-    "latency_ms":         int,
-    "original_tokens":    int,
-    "compressed_tokens":  int,
-    "compression_ratio":  float,
-    "entities":           dict,
-}
 """
 
 import os
@@ -42,7 +25,10 @@ load_dotenv()
 def get_llm_client():
     key = os.getenv("LLM_API_KEY")
     if not key:
-        raise ValueError("LLM_API_KEY not set")
+        raise ValueError(
+            "LLM_API_KEY not set in .env\n"
+            "Add: LLM_API_KEY=your-groq-key"
+        )
     return Groq(api_key=key)
 
 
@@ -103,7 +89,6 @@ INSTANT_CRITICAL_KEYWORDS = [
 
 
 def _instant_critical_check(text: str) -> bool:
-    """Returns True if text contains keywords requiring immediate critical alert."""
     text_lower = text.lower()
     return any(kw in text_lower for kw in INSTANT_CRITICAL_KEYWORDS)
 
@@ -112,9 +97,9 @@ def _instant_critical_check(text: str) -> bool:
 
 def _call_llm(prompt: str, client) -> dict:
     response = client.chat.completions.create(
-        model      = "llama-3.1-8b-instant",
-        max_tokens = 600,
-        messages   = [{"role": "user", "content": prompt}],
+        model="llama-3.1-8b-instant",
+        max_tokens=600,
+        messages=[{"role": "user", "content": prompt}],
     )
 
     raw = response.choices[0].message.content.strip()
@@ -125,7 +110,7 @@ def _call_llm(prompt: str, client) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-          return {
+        return {
             "diagnosis":          "Unable to parse — see reasoning",
             "urgency":            "high",
             "confidence":         0.5,
@@ -142,17 +127,7 @@ def run_triage(
     doc_path:      str = "data/mtsamples.txt",
     top_k:         int = 15,
 ) -> dict:
-    """
-    Full triage pipeline. Called by Person B's FastAPI endpoint.
 
-    Args:
-        patient_input: raw symptom text from chatbot
-        doc_path:      path to hospital document corpus
-        top_k:         retrieval depth for ScaleDown
-
-    Returns complete triage result dict matching agreed JSON schema.
-    """
-    import re  # imported here to avoid module-level dep for re in COT_PROMPT
     start_total = time.time()
 
     # ── Safety pre-check ──────────────────────────────────────────────────────
@@ -179,7 +154,7 @@ def run_triage(
     ner_result = extract_entities(patient_input)
     query      = ner_result["query"] or patient_input[:200]
 
-    # ── Step 2: ScaleDown compression ────────────────────────────────────────
+    # ── Step 2: ScaleDown compression ─────────────────────────────────────────
     compressed = compress_for_query(query, doc_path, top_k=top_k)
 
     # ── Step 3: Build CoT prompt ──────────────────────────────────────────────
@@ -203,7 +178,6 @@ def run_triage(
     total_latency = round((time.time() - start_total) * 1000)
 
     return {
-        # LLM outputs
         "diagnosis":          llm_result.get("diagnosis",          "Unknown"),
         "urgency":            llm_result.get("urgency",            "high"),
         "confidence":         llm_result.get("confidence",         0.0),
@@ -213,65 +187,9 @@ def run_triage(
         "negated_symptoms":   ner_result["negations"],
         "medications":        ner_result["chemicals"],
         "vitals":             ner_result["vitals"],
-        # Metrics (displayed in Person C's UI)
         "latency_ms":         total_latency,
         "original_tokens":    compressed["original_tokens"],
         "compressed_tokens":  compressed["compressed_tokens"],
         "compression_ratio":  compressed["compression_ratio"],
-        # Full NER output for debugging
         "entities":           ner_result,
     }
-
-
-# ─── Self-test ────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import sys
-
-    print("=" * 60)
-    print("DarkSyntax — Triage Engine Self-Test")
-    print("=" * 60)
-
-    TEST_CASES = [
-        "Severe crushing chest pain radiating to left arm, "
-        "profuse sweating, difficulty breathing. BP 90/60, HR 110.",
-
-        "Sudden worst headache of life, stiff neck, "
-        "fever 102F, sensitivity to light.",
-
-        "Mild stomach ache after eating, no fever, "
-        "no vomiting, no diarrhea.",
-    ]
-
-    DOC = "data/mtsamples.txt"
-
-    if not os.path.exists(DOC):
-        print(f"\n[SKIP] {DOC} not found — run extractor.py first")
-        sys.exit(0)
-
-    for i, case in enumerate(TEST_CASES, 1):
-        print(f"\n[Case {i}] {case[:65]}...")
-        try:
-            result = run_triage(case, DOC)
-            print(f"  Diagnosis  : {result['diagnosis']}")
-            print(f"  Urgency    : {result['urgency'].upper()}")
-            print(f"  Confidence : {result['confidence']}")
-            print(f"  Latency    : {result['latency_ms']}ms")
-            print(f"  Tokens     : {result['original_tokens']:,}"
-                  f" → {result['compressed_tokens']} "
-                  f"({result['compression_ratio']}x)")
-            print(f"  Red flags  : {result['red_flags']}")
-            print(f"  Action     : {result['recommended_action']}")
-
-            if result["latency_ms"] > 500:
-                print(f"  [WARN] Over 500ms budget!")
-            else:
-                print(f"  [OK] Within latency budget.")
-
-        except Exception as e:
-            print(f"  [ERROR] {e}")
-
-    print("\n" + "=" * 60)
-    print("Copy run_triage() import path for Person B:")
-    print("  from pipeline.triage import run_triage")
-    print("=" * 60)
