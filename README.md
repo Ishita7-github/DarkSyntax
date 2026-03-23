@@ -1,11 +1,3 @@
----
-title: DarkSyntax
-emoji: 🚨
-colorFrom: red
-colorTo: gray
-sdk: docker
-pinned: false
----
 
 # 🚨 DarkSyntax — Emergency Response Triage Assistant
 
@@ -62,5 +54,3 @@ Colour coded result
 | `LLM_API_KEY` | Your Groq API key from console.groq.com |
 | `SCALEDOWN_API_KEY` | Your ScaleDown API key from scaledown.xyz |
 
----
-*Student project — GenAI for GenZ Challenge 3 — March 2026*
